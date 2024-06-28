@@ -134,7 +134,7 @@ def default_greedy_stages():
 all_vars = [cu.variable_room, cu.variable_obj]
 
 @gin.configurable
-def compose_indoors(output_folder: Path, scene_seed: int, **overrides):
+def compose_indoors(output_folder: Path, scene_seed: int, add_bottle=True, focus_on_bottle=True, **overrides):
     p = pipeline.RandomStageExecutor(scene_seed, output_folder, overrides)
 
     logger.debug(overrides)
@@ -210,10 +210,38 @@ def compose_indoors(output_folder: Path, scene_seed: int, **overrides):
     house_bbox = np.concatenate([butil.bounds(obj) for obj in solver.get_bpy_objects(r.Domain({t.Semantics.Room}))])
     house_bbox = (np.min(house_bbox, axis=0), np.max(house_bbox, axis=0))
 
+    def add_bottle_to_scene(state):
+        # Find a table or surface to place the bottle on
+        surfaces = [obj for obj in state.objs.values() if t.Semantics.Table in obj.tags or t.Semantics.Surface in obj.tags]
+        if not surfaces:
+            logger.warning("No suitable surface found for placing the bottle.")
+            return None
+
+        surface = random.choice(surfaces)
+
+        # Create a simple bottle mesh
+        bpy.ops.mesh.primitive_cylinder_add(radius=0.05, depth=0.2)
+        bottle = bpy.context.active_object
+        bottle.name = "FocusBottle"
+
+        # Position the bottle on the surface
+        surface_bounds = butil.bounds(surface.obj)
+        bottle.location = (
+            random.uniform(surface_bounds[0][0], surface_bounds[1][0]),
+            random.uniform(surface_bounds[0][1], surface_bounds[1][1]),
+            surface_bounds[1][2] + 0.1  # Place slightly above the surface
+        )
+
+        # Add the bottle to the scene state
+        state.objs['focus_bottle'] = state_def.ObjectSpec(obj=bottle, tags={t.Semantics.Bottle, t.Semantics.FocusObject})
+
+        return bottle
+
+    bottle = p.run_stage('add_bottle', add_bottle_to_scene, state, use_chance=False)
+
     camera_rigs = placement.camera.spawn_camera_rigs()
 
     def pose_cameras():
-
         nonroom_objs = [
             o.obj for o in state.objs.values() if t.Semantics.Room not in o.tags
         ]
@@ -235,13 +263,56 @@ def compose_indoors(output_folder: Path, scene_seed: int, **overrides):
             init_surfaces=solved_floor_surface
         )
 
-        return scene_preprocessed
+        return scene_preprocessed, nonroom_objs
     
-    scene_preprocessed = p.run_stage('pose_cameras', pose_cameras, use_chance=False)
+    scene_preprocessed, nonroom_objs = p.run_stage('pose_cameras', pose_cameras, use_chance=False)
+
+    # Select an object to follow (bottle if present, otherwise a small object)
+    if focus_on_bottle and bottle:
+        object_to_follow = bottle
+    else:
+        small_objects = [
+            obj for obj in nonroom_objs 
+            if obj.dimensions.length < 1.0 and any(t.Subpart.SupportSurface in parent.tags for parent in state.get_parents(obj))
+        ]
+        
+        if not small_objects:
+            small_objects = [obj for obj in nonroom_objs if obj.dimensions.length < 1.0]
+
+        object_to_follow = random.choice(small_objects) if small_objects else None
 
     def animate_cameras():
-        cam_util.animate_cameras(camera_rigs, solved_bbox, scene_preprocessed, pois=[])
+        cam_util.animate_cameras(
+            camera_rigs, 
+            solved_bbox, 
+            scene_preprocessed, 
+            pois=[], 
+            object_to_follow=object_to_follow
+        )
     p.run_stage('animate_cameras', animate_cameras, use_chance=False, prereq='pose_cameras')
+
+    def set_visibility_mode(mode):
+        if bottle:
+            bottle.hide_render = bottle.hide_viewport = (mode != 'BOTTLE_ONLY' and mode != 'FULL')
+        for obj in bpy.data.objects:
+            if obj != bottle and obj.type == 'MESH':
+                obj.hide_render = obj.hide_viewport = (mode == 'BOTTLE_ONLY')
+
+    # Add custom property to scene for visibility mode
+    bpy.types.Scene.visibility_mode = bpy.props.EnumProperty(
+        items=[
+            ('BOTTLE_ONLY', "Render Only Bottle", "Render only the bottle"),
+            ('ROOM_ONLY', "Render Only Room", "Render only the room and other objects"),
+            ('FULL', "Render Full Scene", "Render the full scene")
+        ],
+        name="Visibility Mode",
+        description="Control what parts of the scene are visible",
+        default='FULL',
+        update=lambda self, context: set_visibility_mode(self.visibility_mode)
+    )
+
+    # Set initial visibility
+    set_visibility_mode('FULL')
 
     p.run_stage(
         'populate_intermediate_pholders', 

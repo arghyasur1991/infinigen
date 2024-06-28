@@ -604,6 +604,7 @@ def animate_cameras(
     pois=None,
     follow_poi_chance=0.0,
     policy_registry = None,
+    object_to_follow=None,
 ):
     animation_ratio = {}
     animation_answers = {}
@@ -623,14 +624,18 @@ def animate_cameras(
     )
 
     for cam_rig in cam_rigs:
-
-        if policy_registry is None:
+        if object_to_follow is not None:
+            policy = animation_policy.AnimPolicyApproachAndOrbit(
+                target_obj=object_to_follow,
+                initial_distance=5.0,
+                approach_distance=2.0,
+                final_distance=1.5,
+                orbit_angle=90,
+                total_frames=240,
+            )
+        elif policy_registry is None:
             if U() < follow_poi_chance and pois is not None and len(pois):
-                policy = animation_policy.AnimPolicyFollowObject(
-                    target_obj=cam_rig,
-                    pois=pois,
-                    bvh=scene_preprocessed['scene_bvh']
-                )
+                policy = animation_policy.AnimPolicyRandomWalkLookaround()
             else:
                 policy = animation_policy.AnimPolicyRandomWalkLookaround()
         else:

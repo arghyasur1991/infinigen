@@ -309,6 +309,78 @@ class AnimPolicyFollowObject:
 
         return Vector(pos), None, time, 'BEZIER'
 
+@gin.configurable
+class AnimPolicyApproachAndOrbit:
+    def __init__(
+        self,
+        target_obj,
+        initial_distance=5.0,
+        approach_distance=2.0,
+        final_distance=1.5,
+        orbit_angle=90,
+        total_frames=240,
+    ):
+        self.target_obj = target_obj
+        self.initial_distance = initial_distance
+        self.approach_distance = approach_distance
+        self.final_distance = final_distance
+        self.orbit_angle = np.radians(orbit_angle)
+        self.total_frames = total_frames
+        
+        self.current_frame = 0
+        self.start_position = None
+        self.start_rotation = None
+
+    def reset(self):
+        target_position = self.target_obj.matrix_world.translation
+        
+        # Calculate initial camera position
+        random_angle = np.random.uniform(0, 2 * np.pi)
+        initial_offset = Vector((np.cos(random_angle), np.sin(random_angle), 0.5)) * self.initial_distance
+        self.start_position = target_position + initial_offset
+        
+        # Calculate initial camera rotation
+        look_at = self.start_position - target_position
+        self.start_rotation = look_at.to_track_quat('-Z', 'Y').to_euler()
+
+        self.current_frame = 0
+
+    def __call__(self, cam, frame_curr, bvh, retry_pct):
+        if self.start_position is None:
+            self.reset()
+
+        target_position = self.target_obj.matrix_world.translation
+        progress = self.current_frame / self.total_frames
+
+        if progress < 0.4:  # Approach phase
+            t = progress / 0.4
+            distance = self.initial_distance + (self.approach_distance - self.initial_distance) * self.ease_in_out(t)
+            angle = 0
+        elif progress < 0.8:  # Orbit phase
+            t = (progress - 0.4) / 0.4
+            distance = self.approach_distance
+            angle = self.orbit_angle * self.ease_in_out(t)
+        else:  # Fixate phase
+            t = (progress - 0.8) / 0.2
+            distance = self.approach_distance + (self.final_distance - self.approach_distance) * self.ease_in_out(t)
+            angle = self.orbit_angle
+
+        # Calculate new camera position
+        offset = Vector((np.cos(angle), np.sin(angle), 0.5)) * distance
+        new_position = target_position + mathutils.Quaternion(self.start_rotation) @ offset
+
+        # Calculate new camera rotation
+        look_at = target_position - new_position
+        new_rotation = look_at.to_track_quat('-Z', 'Y').to_euler()
+
+        self.current_frame += 1
+        return new_position, new_rotation, 1, 'BEZIER'
+
+    @staticmethod
+    def ease_in_out(t):
+        return 0.5 * (1 - np.cos(np.pi * t))
+
+
 def validate_keyframe_range(
     obj,
     start_frame, end_frame,

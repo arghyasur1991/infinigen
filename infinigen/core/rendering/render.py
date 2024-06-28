@@ -299,6 +299,7 @@ def render_image(
     excludes=[],
     use_dof=False,
     dof_aperture_fstop=2.8,
+    alpha_only=False,  # New parameter
 ):
     
     tic = time.time()
@@ -324,7 +325,6 @@ def render_image(
 
         with Timer("Flat Shading"):
             global_flat_shading()
-
 
     if not bpy.context.scene.use_nodes:
         bpy.context.scene.use_nodes = True
@@ -365,6 +365,28 @@ def render_image(
                     output_folder=frames_folder,
                     frame=frame
                 )
+            
+            if alpha_only:
+                # Process the rendered image to keep only the alpha channel
+                render_result = bpy.data.images['Render Result']
+                pixels = np.array(render_result.pixels[:])
+                width = render_result.size[0]
+                height = render_result.size[1]
+                
+                # Reshape the pixel array and extract alpha channel
+                pixels = pixels.reshape((height, width, 4))
+                alpha = pixels[:, :, 3]
+                
+                # Create a new image with only the alpha channel
+                alpha_image = bpy.data.images.new("Alpha Mask", width=width, height=height, alpha=True)
+                alpha_pixels = np.zeros((height, width, 4))
+                alpha_pixels[:, :, 3] = alpha
+                alpha_image.pixels = alpha_pixels.flatten()
+                
+                # Save the alpha-only image
+                alpha_image.file_format = 'PNG'
+                alpha_suffix = get_suffix(dict(frame=frame, **indices))
+                alpha_image.save_render(str(frames_folder / f"Alpha{alpha_suffix}.png"))
 
     for file in tmp_dir.glob('*.png'):
         file.unlink()
@@ -372,3 +394,4 @@ def render_image(
     reorganize_old_framesfolder(frames_folder)
 
     logger.info(f"rendering time: {time.time() - tic}")
+    

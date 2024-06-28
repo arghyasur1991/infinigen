@@ -218,7 +218,7 @@ def get_scene_tag(name):
         return None
 
 @gin.configurable
-def render(scene_seed, output_folder, camera_id, render_image_func=render_image, resample_idx=None, hide_water = False):
+def render(scene_seed, output_folder, camera_id, render_image_func=render_image, resample_idx=None, hide_water = False, alpha_only = False):
     if hide_water and "water_fine" in bpy.data.objects:
         logger.info("Hiding water fine")
         bpy.data.objects["water_fine"].hide_render = True
@@ -226,7 +226,7 @@ def render(scene_seed, output_folder, camera_id, render_image_func=render_image,
     if resample_idx is not None and resample_idx != 0:
         resample_scene(int_hash((scene_seed, resample_idx)))
     with Timer('Render Frames'):
-        render_image_func(frames_folder=Path(output_folder), camera_id=camera_id)
+        render_image_func(frames_folder=Path(output_folder), camera_id=camera_id, alpha_only=alpha_only)
 
 def triangulate_meshes():
     for obj in bpy.context.scene.objects:
