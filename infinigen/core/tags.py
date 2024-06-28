@@ -51,6 +51,7 @@ class Semantics(EnumTag):
     FloorMat = "FloorMat"
     WallDecoration = "wall-decoration"
     HandheldItem = "handheld-item"
+    FocusObject = "focus-object"
 
     # Furniture functions
     Storage = "storage"
@@ -78,6 +79,7 @@ class Semantics(EnumTag):
     Dishware = "dishware"
     Cookware = "cookware"
     Utensils = "utensils"
+    Bottle = "bottle"
     ClothDrapeItem = "cloth-drape"
 
     # Object Access Type

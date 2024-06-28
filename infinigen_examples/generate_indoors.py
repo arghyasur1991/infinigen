@@ -5,6 +5,7 @@
 import argparse
 from pathlib import Path
 import logging
+import random
 from time import time
 from numpy import deg2rad
 import pprint
@@ -211,29 +212,27 @@ def compose_indoors(output_folder: Path, scene_seed: int, add_bottle=True, focus
     house_bbox = (np.min(house_bbox, axis=0), np.max(house_bbox, axis=0))
 
     def add_bottle_to_scene(state):
-        # Find a table or surface to place the bottle on
-        surfaces = [obj for obj in state.objs.values() if t.Semantics.Table in obj.tags or t.Semantics.Surface in obj.tags]
+        surfaces = [obj for obj in state.objs.values() if t.Semantics.Table in obj.tags or t.Semantics.Furniture in obj.tags]
         if not surfaces:
             logger.warning("No suitable surface found for placing the bottle.")
             return None
 
         surface = random.choice(surfaces)
 
-        # Create a simple bottle mesh
         bpy.ops.mesh.primitive_cylinder_add(radius=0.05, depth=0.2)
         bottle = bpy.context.active_object
         bottle.name = "FocusBottle"
 
-        # Position the bottle on the surface
         surface_bounds = butil.bounds(surface.obj)
         bottle.location = (
             random.uniform(surface_bounds[0][0], surface_bounds[1][0]),
             random.uniform(surface_bounds[0][1], surface_bounds[1][1]),
-            surface_bounds[1][2] + 0.1  # Place slightly above the surface
+            surface_bounds[1][2] + 0.1
         )
 
-        # Add the bottle to the scene state
-        state.objs['focus_bottle'] = state_def.ObjectSpec(obj=bottle, tags={t.Semantics.Bottle, t.Semantics.FocusObject})
+        # Add the bottle to the state
+        bottle_spec = state_def.ObjectState(obj=bottle, tags={t.Semantics.Bottle, t.Semantics.FocusObject})
+        state.objs['focus_bottle'] = bottle_spec
 
         return bottle
 
@@ -272,12 +271,14 @@ def compose_indoors(output_folder: Path, scene_seed: int, add_bottle=True, focus
         object_to_follow = bottle
     else:
         small_objects = [
-            obj for obj in nonroom_objs 
-            if obj.dimensions.length < 1.0 and any(t.Subpart.SupportSurface in parent.tags for parent in state.get_parents(obj))
+            obj.obj for obj in state.objs.values() 
+            if obj.obj.dimensions.length < 1.0 and 
+            any(t.Semantics.Furniture in parent.tags 
+                for parent in state.get_parents(obj))
         ]
         
         if not small_objects:
-            small_objects = [obj for obj in nonroom_objs if obj.dimensions.length < 1.0]
+            small_objects = [obj.obj for obj in state.objs.values() if obj.obj.dimensions.length < 1.0]
 
         object_to_follow = random.choice(small_objects) if small_objects else None
 
