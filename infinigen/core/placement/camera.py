@@ -635,7 +635,11 @@ def animate_cameras(
             )
         elif policy_registry is None:
             if U() < follow_poi_chance and pois is not None and len(pois):
-                policy = animation_policy.AnimPolicyRandomWalkLookaround()
+                policy = animation_policy.AnimPolicyFollowObject(
+                    target_obj=cam_rig,
+                    pois=pois,
+                    bvh=scene_preprocessed['scene_bvh']
+                )
             else:
                 policy = animation_policy.AnimPolicyRandomWalkLookaround()
         else:
